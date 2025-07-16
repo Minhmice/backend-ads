@@ -86,8 +86,8 @@ async function autoScroll(page) {
       100
     ).toFixed(2);
 
-    // Wait 5 seconds before the next scroll using Node.js setTimeout
-    await new Promise((resolve) => setTimeout(resolve, 5000)); // Delay of 5 seconds
+    // Wait 3 seconds before the next scroll using Node.js setTimeout
+    await new Promise((resolve) => setTimeout(resolve, 3000)); // Delay of 3 seconds
 
     // Check if new data is loaded by comparing the new height with the previous height
     const currentHeight = await page.evaluate(() => document.body.scrollHeight);
