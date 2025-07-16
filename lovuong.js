@@ -46,7 +46,7 @@ const rl = readline.createInterface({
 
     // Write XHR requests to a file
     fs.writeFileSync(
-      "xhr_requests.json",
+      "data.json",
       JSON.stringify(xhrRequests, null, 2),
       "utf-8"
     );
