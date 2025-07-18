@@ -140,8 +140,6 @@ const fs = require("fs");
 
     let prevHeight = 0;
     let timeoutReached = false;
-    // dừng sau 2 phút
-    setTimeout(() => (timeoutReached = true), 120000);
 
     // loop scroll
     while (!timeoutReached) {
