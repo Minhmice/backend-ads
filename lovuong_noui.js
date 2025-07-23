@@ -1,7 +1,6 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const readline = require("readline");
-const { Client } = require("pg"); // PostgreSQL client
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -9,17 +8,6 @@ const rl = readline.createInterface({
 });
 
 (async () => {
-  // Kết nối với PostgreSQL
-  const client = new Client({
-    user: "n8n_user", // Thay bằng user của bạn
-    host: "100.116.141.43",
-    database: "postgres", // Thay bằng tên cơ sở dữ liệu của bạn
-    password: "n8n_pass", // Thay bằng mật khẩu của bạn
-    port: 5432,
-  });
-
-  await client.connect();
-
   const browser = await puppeteer.launch({
     headless: true,
     defaultViewport: null,
@@ -54,55 +42,9 @@ const rl = readline.createInterface({
     await page.goto(url, { waitUntil: "networkidle2", timeout: 0 });
 
     // Auto scroll and count scrolls
-    await autoScroll(page);
+    const html = await autoScroll(page);
 
-    // Lọc và chuẩn bị dữ liệu
-    const adsData = xhrRequests.map((ad) => {
-      const snapshot = ad.responseBody.node.snapshot;
-      const brand = snapshot.page_name || "";
-      const status = ad.responseBody.node.is_active ? "Active" : "Inactive";
-      const startDate = new Date(snapshot.start_date * 1000).toISOString(); // Convert from epoch to date
-      const adsFormat = snapshot.display_format || "";
-      const adsPlatform = snapshot.publisher_platform.join(", ") || "";
-      const imageUrl = snapshot.images[0]?.original_image_url || "";
-      const caption = snapshot.caption || "";
-
-      return {
-        brand,
-        status,
-        startDate,
-        adsFormat,
-        adsPlatform,
-        imageUrl,
-        caption,
-      };
-    });
-
-    // Đưa dữ liệu vào PostgreSQL
-    for (const ad of adsData) {
-      const query = `
-        INSERT INTO facebook_ads (brand, status, start_date, ads_format, ads_platform, image_url, caption)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `;
-      const values = [
-        ad.brand,
-        ad.status,
-        ad.startDate,
-        ad.adsFormat,
-        ad.adsPlatform,
-        ad.imageUrl,
-        ad.caption,
-      ];
-
-      try {
-        await client.query(query, values);
-        console.log(`Data for ad ${ad.brand} inserted successfully.`);
-      } catch (err) {
-        console.error(`Error inserting data for ad ${ad.brand}:`, err);
-      }
-    }
-
-    // Write XHR requests to a file (optional, for debugging)
+    // Write XHR requests to a file
     fs.writeFileSync(
       "data.json",
       JSON.stringify(xhrRequests, null, 2),
@@ -111,7 +53,6 @@ const rl = readline.createInterface({
 
     await browser.close();
     rl.close();
-    await client.end(); // Đóng kết nối PostgreSQL
   });
 })();
 
