@@ -1,106 +1,75 @@
-const puppeteer = require("puppeteer");
-const fs = require("fs");
-const readline = require("readline");
+// lovuong_noui.js
+import puppeteer from "puppeteer";
+import fs from "fs";
+import readline from "readline";
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+async function askQuestion(query) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => rl.question(query, answer => {
+    rl.close();
+    resolve(answer.trim());
+  }));
+}
 
 (async () => {
+  // 1) Prompt for URL if none passed on CLI
+  let url = process.argv[2];
+  if (!url) {
+    url = await askQuestion("Please enter the URL to scrape: ");
+    if (!url) {
+      console.error("❌ No URL provided, exiting.");
+      process.exit(1);
+    }
+  }
+
+  // 2) Launch browser
   const browser = await puppeteer.launch({
     headless: true,
     defaultViewport: null,
+    args: ["--no-sandbox","--disable-setuid-sandbox"]
   });
   const page = await browser.newPage();
 
-  // Set up response interception to capture XHR requests to the specific URL
+  // 3) Intercept XHR GraphQL calls
   const xhrRequests = [];
-  let xhrCount = 0;
-
-  page.on("response", async (response) => {
-    const url = response.url();
+  page.on("response", async res => {
+    const resUrl = res.url();
     if (
-      url.includes("https://www.facebook.com/api/graphql/") &&
-      response.request().resourceType() === "xhr"
+      resUrl.includes("https://www.facebook.com/api/graphql/") &&
+      res.request().resourceType() === "xhr"
     ) {
       try {
-        const responseBody = await response.json(); // Get the response as JSON
-        xhrRequests.push({ url, responseBody });
-        xhrCount++;
-      } catch (error) {
-        console.log(`Failed to capture XHR request ${url}: ${error.message}`);
+        const json = await res.json();
+        xhrRequests.push({ url: resUrl, body: json });
+      } catch (e) {
+        console.warn(`⚠️ Failed to parse JSON from ${resUrl}: ${e.message}`);
       }
     }
   });
 
-  // Ask the user for the URL to scrape
-  rl.question("Please enter the URL to scrape: ", async (url) => {
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-    );
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 0 });
+  console.log(`▶️ Loading ${url}`);
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 0 });
 
-    // Auto scroll and count scrolls
-    const html = await autoScroll(page);
-
-    // Write XHR requests to a file
-    fs.writeFileSync(
-      "data.json",
-      JSON.stringify(xhrRequests, null, 2),
-      "utf-8"
-    );
-
-    await browser.close();
-    rl.close();
-  });
-})();
-
-async function autoScroll(page) {
-  const distance = 10000; // Set scroll distance
-  let totalHeight = 0;
-  let prevHeight = 0; // Height before scrolling
-  let scrollCount = 0; // Count scrolls
-  let timeoutReached = false;
-  let dataLoaded = true; // Flag to check if new data is loaded
-
-  // Set timeout to stop after 2 minutes
-  const timeout = setTimeout(() => {
-    timeoutReached = true;
-  }, 120000); // Timeout after 2 minutes
-
-  while (dataLoaded && !timeoutReached) {
-    console.log(`Scrolling... Count: ${scrollCount + 1}`);
-
-    await page.evaluate(() => {
-      window.scrollBy(0, 10000);
-    });
-
-    totalHeight += distance;
-    scrollCount++; // Increment scroll count
-
-    // Log the progress of scrolling
-    const progress = Math.min(
-      (totalHeight / (await page.evaluate(() => document.body.scrollHeight))) *
-        100,
-      100
-    ).toFixed(2);
-
-    // Wait 5 seconds before the next scroll using Node.js setTimeout
-    await new Promise((resolve) => setTimeout(resolve, 5000)); // Delay of 5 seconds
-
-    // Check if new data is loaded by comparing the new height with the previous height
-    const currentHeight = await page.evaluate(() => document.body.scrollHeight);
-    if (currentHeight === prevHeight) {
-      // If the height doesn't change, it means no new data was loaded
-      dataLoaded = false;
-      console.log("No more data loaded, ending scroll.");
-    } else {
-      prevHeight = currentHeight;
+  // 4) Auto‐scroll to load all results
+  let prevHeight = await page.evaluate(() => document.body.scrollHeight);
+  let scrollCount = 0;
+  while (true) {
+    scrollCount++;
+    console.log(`🔄 Scrolling pass #${scrollCount}`);
+    await page.evaluate(() => window.scrollBy(0, 10000));
+    // use Node timeout instead of page.waitForTimeout
+    await new Promise(r => setTimeout(r, 2000));
+    const newHeight = await page.evaluate(() => document.body.scrollHeight);
+    if (newHeight === prevHeight) {
+      console.log("✅ No more new content, stopping scroll.");
+      break;
     }
+    prevHeight = newHeight;
   }
 
-  // After scroll finishes, get the HTML content of the page
-  console.log("Scroll finished. Returning Data");
-  return await page.content();
-}
+  // 5) Write out all captured XHR responses
+  fs.writeFileSync("data.json", JSON.stringify(xhrRequests, null, 2), "utf-8");
+  console.log(`🎉 Captured ${xhrRequests.length} XHR responses → data.json`);
+
+  await browser.close();
+})();
